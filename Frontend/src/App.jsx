@@ -23,7 +23,7 @@ function App() {
   const handleSheetSelect = async (sheetName) => {
     setSelectedSheet(sheetName);
     try {
-      const res = await axios.get(`http://localhost:5000/api/columns/${uploadId}/${sheetName}`);
+      const res = await axios.get(`https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/columns/${uploadId}/${sheetName}`);
       setColumns(Array.isArray(res.data.columns) ? res.data.columns : []);
     } catch (err) {
       setError('Failed to load columns');
