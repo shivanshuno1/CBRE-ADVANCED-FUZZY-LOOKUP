@@ -371,9 +371,9 @@ app.post('/api/download-results', (req, res) => {
     for (const result of results) {
       for (const match of result.matches) {
         matchedRows.push({
-          'Left_' + columnLeft: result.leftRow[columnLeft],
+          ['Left_' + columnLeft]: result.leftRow[columnLeft],
           ...result.leftRow,
-          'Right_' + columnRight: match.rightRow[columnRight],
+          ['Right_' + columnRight]: match.rightRow[columnRight],
           ...match.rightRow,
           'Similarity_Score': match.similarityScore
         });
