@@ -2,253 +2,135 @@ import express from 'express';
 import multer from 'multer';
 import XLSX from 'xlsx';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import * as fuzzball from 'fuzzball';
 import cors from 'cors';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-const upload = multer({ dest: 'uploads/' });
+
+// Ensure uploads directory exists
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const upload = multer({ dest: uploadDir });
 
 let workbook = null;
+let currentUploadId = null;
 
-// ============ GENERIC ABBREVIATION DICTIONARY ============
-// Expand these dynamically - add as many as you need
-const abbreviationMap = {
+// ============ UNIVERSAL TEXT NORMALIZATION ============
+
+// Generic abbreviation expansion (can be extended by user)
+const universalAbbrMap = {
   // Legal
   'pvt': 'private', 'ltd': 'limited', 'corp': 'corporation', 'inc': 'incorporated',
   'co': 'company', 'llc': 'limited liability company', 'llp': 'limited liability partnership',
-  'plc': 'public limited company', 'pc': 'professional corporation', 'pa': 'professional association',
+  'plc': 'public limited company', 'pc': 'professional corporation',
   
-  // Business suffixes
-  'ent': 'enterprise', 'grp': 'group', 'hldgs': 'holdings', 'hldg': 'holding',
-  'intl': 'international', 'tech': 'technology', 'sols': 'solutions', 'svcs': 'services',
-  'mgmt': 'management', 'assoc': 'associates', 'assn': 'association', 'inst': 'institute',
-  'fdn': 'foundation', 'inds': 'industries', 'mfg': 'manufacturing', 'dist': 'distribution',
-  'whs': 'wholesale', 'ret': 'retail', 'div': 'division', 'sub': 'subsidiary',
+  // Business
+  'ent': 'enterprise', 'grp': 'group', 'hldgs': 'holdings', 'intl': 'international',
+  'tech': 'technologies', 'sols': 'solutions', 'svcs': 'services', 'mgmt': 'management',
+  'assoc': 'associates', 'inst': 'institute', 'fdn': 'foundation', 'inds': 'industries',
+  'mfg': 'manufacturing', 'dist': 'distribution', 'whs': 'wholesale', 'ret': 'retail',
   
-  // Common business terms
+  // Financial
   'cap': 'capital', 'fin': 'financial', 'inv': 'investment', 'adv': 'advisors',
-  'part': 'partners', 'cons': 'consulting', 'dig': 'digital', 'creat': 'creative',
-  'media': 'media', 'comms': 'communications', 'telecom': 'telecommunications',
-  'soft': 'software', 'sys': 'systems', 'net': 'networks', 'log': 'logistics',
-  'supply': 'supply chain', 'dist': 'distribution', 'mfg': 'manufacturing',
-  'prod': 'products', 'serv': 'services', 'soln': 'solutions',
+  'part': 'partners', 'cons': 'consulting',
   
   // Geographic
   'natl': 'national', 'nat': 'national', 'amer': 'american', 'glob': 'global',
-  'eu': 'european', 'asia': 'asian', 'pac': 'pacific', 'atl': 'atlantic',
-  'midwest': 'midwest', 'northeast': 'northeast', 'southeast': 'southeast',
-  'southwest': 'southwest', 'northwest': 'northwest',
-  
-  // Government
-  'gov': 'government', 'govt': 'government', 'auth': 'authority', 'dept': 'department',
-  'agcy': 'agency', 'bur': 'bureau', 'comm': 'commission',
-  
-  // Industry specific
-  'air': 'airlines', 'airways': 'airways', 'rail': 'railway', 'shipping': 'shipping',
-  'maritime': 'maritime', 'energy': 'energy', 'power': 'power', 'util': 'utilities',
-  'health': 'healthcare', 'pharma': 'pharmaceutical', 'biotech': 'biotechnology',
-  'auto': 'automotive', 'aero': 'aerospace', 'def': 'defense', 'sec': 'security',
-  'it': 'information technology', 'ai': 'artificial intelligence', 'ml': 'machine learning',
-  
-  // Common prefixes/suffixes
   'east': 'eastern', 'west': 'western', 'north': 'northern', 'south': 'southern',
-  'central': 'central', 'metro': 'metropolitan', 'city': 'city', 'town': 'town',
-  'village': 'village', 'heights': 'heights', 'park': 'park', 'plaza': 'plaza',
-  'tower': 'tower', 'center': 'center', 'centre': 'centre', 'square': 'square',
+  'central': 'central', 'metro': 'metropolitan',
+  
+  // Common misspellings
+  'logistix': 'logistics', 'logistik': 'logistics',
+  'soloutions': 'solutions', 'solutons': 'solutions',
+  'incorperated': 'incorporated', 'corperation': 'corporation',
+  'finacial': 'financial', 'teh': 'the'
 };
 
-// ============ GENERIC MISSPELLING CORRECTIONS ============
-// Common typos and misspellings
-const misspellingMap = {
-  // Logistics variations
-  'logistix': 'logistics', 'logistik': 'logistics', 'logistc': 'logistics',
-  'lodgistics': 'logistics', 'logisitcs': 'logistics',
-  
-  // Solutions variations
-  'soloutions': 'solutions', 'solutons': 'solutions', 'solns': 'solutions',
-  
-  // Incorporated variations
-  'incorperated': 'incorporated', 'incorp': 'incorporated', 'incorprated': 'incorporated',
-  
-  // Corporation variations
-  'corperation': 'corporation', 'corparation': 'corporation', 'corpration': 'corporation',
-  
-  // Financial variations
-  'finacial': 'financial', 'finanical': 'financial', 'fincial': 'financial',
-  
-  // Common typos
-  'teh': 'the', 'and': 'and', 'withe': 'with', 'from': 'from',
-  'thier': 'their', 'there': 'their', 'your': 'your', 'youre': 'your',
-  
-  // Double letters
-  'commm': 'comm', 'incorr': 'incor', 'corpp': 'corp',
-};
-
-// ============ HELPER FUNCTIONS ============
-
-// Generic abbreviation expansion
-function expandAbbreviations(text) {
+// Clean text for comparison
+function cleanText(text) {
   if (!text || typeof text !== 'string') return '';
   
-  let result = ' ' + text.toLowerCase().replace(/[.,!?;:]$/g, '') + ' ';
+  // Convert to string and lowercase
+  let cleaned = String(text).toLowerCase();
   
-  // Sort by length (longest first) to avoid partial replacements
-  const sortedAbbrs = Object.keys(abbreviationMap).sort((a, b) => b.length - a.length);
+  // Remove special characters but keep letters, numbers, and spaces
+  cleaned = cleaned.replace(/[^a-z0-9\s]/g, ' ');
+  
+  // Remove extra spaces
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  
+  return cleaned;
+}
+
+// Expand abbreviations in text
+function expandAbbreviations(text, customAbbrMap = {}) {
+  if (!text) return '';
+  
+  const combinedMap = { ...universalAbbrMap, ...customAbbrMap };
+  let result = ' ' + cleanText(text) + ' ';
+  
+  // Sort by length (longest first) to avoid partial matches
+  const sortedAbbrs = Object.keys(combinedMap).sort((a, b) => b.length - a.length);
   
   for (const abbr of sortedAbbrs) {
-    const regex = new RegExp(`\\b${this.escapeRegex(abbr)}\\b`, 'gi');
-    if (regex.test(result)) {
-      result = result.replace(regex, ` ${abbreviationMap[abbr]} `);
-    }
+    const regex = new RegExp(`\\b${abbr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+    result = result.replace(regex, ` ${combinedMap[abbr]} `);
   }
   
   return result.trim();
 }
 
-// Escape regex special characters
-function escapeRegex(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// Generic misspelling correction
-function correctMisspellings(text) {
-  if (!text || typeof text !== 'string') return text;
-  
-  let result = ' ' + text.toLowerCase() + ' ';
-  
-  const sortedMisspellings = Object.keys(misspellingMap).sort((a, b) => b.length - a.length);
-  
-  for (const wrong of sortedMisspellings) {
-    const regex = new RegExp(`\\b${this.escapeRegex(wrong)}\\b`, 'gi');
-    if (regex.test(result)) {
-      result = result.replace(regex, ` ${misspellingMap[wrong]} `);
-    }
-  }
-  
-  return result.trim();
-}
-
-// Calculate Levenshtein distance for character-level similarity
-function levenshteinDistance(a, b) {
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-  
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-  
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      const cost = a[j - 1] === b[i - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,
-        matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + cost
-      );
-    }
-  }
-  
-  return matrix[b.length][a.length];
-}
-
-// Character-level similarity (0-100)
-function charSimilarity(a, b) {
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 100;
-  const distance = levenshteinDistance(a, b);
-  return Math.round((1 - distance / maxLen) * 100);
-}
-
-// GENERIC SIMILARITY CALCULATION - Works for ANY text
-function calculateSimilarity(str1, str2) {
+// Calculate similarity score (0-100)
+function calculateSimilarity(str1, str2, customAbbrMap = {}) {
   if (!str1 || !str2) return 0;
   
-  const s1 = String(str1);
-  const s2 = String(str2);
+  const s1_raw = String(str1);
+  const s2_raw = String(str2);
   
-  // Quick exact match
-  if (s1.toLowerCase().replace(/[^a-z0-9]/g, '') === s2.toLowerCase().replace(/[^a-z0-9]/g, '')) {
+  // Quick exact match after basic cleaning
+  if (cleanText(s1_raw) === cleanText(s2_raw)) {
     return 100;
   }
   
-  // Step 1: Expand abbreviations
-  const expanded1 = expandAbbreviations(s1);
-  const expanded2 = expandAbbreviations(s2);
+  // Expand abbreviations
+  const s1 = expandAbbreviations(s1_raw, customAbbrMap);
+  const s2 = expandAbbreviations(s2_raw, customAbbrMap);
   
-  // Step 2: Correct misspellings
-  const corrected1 = correctMisspellings(expanded1);
-  const corrected2 = correctMisspellings(expanded2);
+  // Use multiple fuzzy matching algorithms
+  const tokenSetRatio = fuzzball.token_set_ratio(s1, s2);
+  const tokenSortRatio = fuzzball.token_sort_ratio(s1, s2);
+  const partialRatio = fuzzball.partial_ratio(s1, s2);
+  const wRatio = fuzzball.WRatio(s1, s2);
   
-  // Step 3: Calculate multiple similarity metrics
-  const tokenSetRatio = fuzzball.token_set_ratio(corrected1, corrected2);
-  const tokenSortRatio = fuzzball.token_sort_ratio(corrected1, corrected2);
-  const partialRatio = fuzzball.partial_ratio(corrected1, corrected2);
-  const wRatio = fuzzball.WRatio(corrected1, corrected2);
+  // Weighted combination - token_set_ratio is best for word order independence
+  let score = Math.max(tokenSetRatio, wRatio, partialRatio, tokenSortRatio);
   
-  // Step 4: Character-level similarity (catches typos)
-  const charSim = charSimilarity(corrected1, corrected2);
-  
-  // Step 5: Word overlap ratio
-  const words1 = new Set(corrected1.split(/\s+/));
-  const words2 = new Set(corrected2.split(/\s+/));
-  const intersection = new Set([...words1].filter(x => words2.has(x)));
-  const union = new Set([...words1, ...words2]);
-  const wordOverlap = (intersection.size / union.size) * 100;
-  
-  // Step 6: Combine scores with weights
-  let finalScore = Math.max(
-    tokenSetRatio * 0.4,
-    wRatio * 0.3,
-    charSim * 0.2,
-    wordOverlap * 0.1
-  );
-  
-  // Step 7: Apply dynamic penalties based on differences
-  
-  // Penalty for different word lengths (significantly different strings)
-  const lengthRatio = Math.min(corrected1.length, corrected2.length) / 
-                      Math.max(corrected1.length, corrected2.length);
-  if (lengthRatio < 0.7) {
-    finalScore *= 0.85; // 15% penalty for very different lengths
+  // Boost score for high partial matches (important for addresses)
+  if (partialRatio > 85 && score < partialRatio) {
+    score = partialRatio;
   }
   
-  // Penalty for missing key words
-  const commonWords = ['company', 'corporation', 'limited', 'incorporated', 'llc', 'inc', 'corp'];
-  let missingKeyWords = 0;
-  for (const word of commonWords) {
-    const hasIn1 = corrected1.includes(word);
-    const hasIn2 = corrected2.includes(word);
-    if (hasIn1 !== hasIn2) missingKeyWords++;
-  }
-  if (missingKeyWords > 0) {
-    finalScore *= (1 - (missingKeyWords * 0.05)); // 5% penalty per missing key word
-  }
-  
-  // Cap at 100 and round
-  finalScore = Math.min(100, Math.max(0, Math.round(finalScore)));
-  
-  // Special handling: If strings are very different semantically but share core words
-  // This is handled automatically by the word overlap ratio
-  
-  return finalScore;
+  return Math.min(100, Math.max(0, Math.round(score)));
 }
 
-// ============ PERFORMANCE OPTIMIZATIONS ============
-
-// Build prefix index for fast candidate lookup
+// Build prefix index for performance
 function buildIndex(data, column) {
   const index = new Map();
   for (let i = 0; i < data.length; i++) {
     const val = data[i][column] ? String(data[i][column]).toLowerCase() : '';
-    if (val.length >= 2) {
-      // Use 2-char prefix for better recall
-      const prefix = val.substring(0, 2);
+    const cleaned = cleanText(val);
+    if (cleaned.length >= 2) {
+      const prefix = cleaned.substring(0, 2);
       if (!index.has(prefix)) index.set(prefix, []);
       index.get(prefix).push(i);
     }
@@ -256,217 +138,273 @@ function buildIndex(data, column) {
   return index;
 }
 
-// Cache expanded values for performance
-function buildExpansionCache(data, column) {
-  const cache = new Map();
-  for (let i = 0; i < data.length; i++) {
-    const val = data[i][column] ? String(data[i][column]) : '';
-    cache.set(i, {
-      raw: val,
-      expanded: expandAbbreviations(val),
-      corrected: correctMisspellings(expandAbbreviations(val))
-    });
-  }
-  return cache;
-}
-
 // ============ API ENDPOINTS ============
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Universal Fuzzy Lookup API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      upload: 'POST /api/upload',
+      sheets: 'GET /api/sheets/:uploadId',
+      columns: 'GET /api/columns/:uploadId/:sheetName',
+      match: 'POST /api/fuzzy-match',
+      download: 'POST /api/download-results'
+    }
+  });
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+// Upload Excel file
 app.post('/api/upload', upload.single('file'), (req, res) => {
   try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
     const wb = XLSX.readFile(req.file.path);
     workbook = wb;
-    const sheets = wb.SheetNames.map(name => ({ name }));
-    res.json({ success: true, uploadId: req.file.filename, sheets });
+    currentUploadId = req.file.filename;
+    
+    // Get sheet info with row counts
+    const sheets = wb.SheetNames.map(name => {
+      const sheet = wb.Sheets[name];
+      const data = XLSX.utils.sheet_to_json(sheet);
+      return { name, rowCount: data.length };
+    });
+    
+    res.json({ 
+      success: true, 
+      uploadId: req.file.filename, 
+      sheets,
+      totalSheets: sheets.length
+    });
+    
+    // Clean up file
     fs.unlinkSync(req.file.path);
   } catch (err) {
+    console.error('Upload error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// Get all sheets
+app.get('/api/sheets/:uploadId', (req, res) => {
+  if (!workbook) {
+    return res.status(404).json({ error: 'No workbook uploaded' });
+  }
+  
+  const sheets = workbook.SheetNames.map(name => ({ name }));
+  res.json({ sheets });
+});
+
+// Get columns from a sheet
 app.get('/api/columns/:uploadId/:sheetName', (req, res) => {
-  if (!workbook) return res.status(404).json({ error: 'No workbook' });
+  if (!workbook) {
+    return res.status(404).json({ error: 'No workbook uploaded' });
+  }
+  
   try {
-    const sheet = workbook.Sheets[req.params.sheetName];
+    const sheetName = req.params.sheetName;
+    const sheet = workbook.Sheets[sheetName];
+    
+    if (!sheet) {
+      return res.status(404).json({ error: `Sheet '${sheetName}' not found` });
+    }
+    
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-    if (!data.length) return res.json({ columns: [] });
+    if (!data || !data.length) {
+      return res.json({ columns: [] });
+    }
+    
     const headers = data[0].map(h => String(h));
-    const columns = headers.map((name, idx) => ({ name, index: idx }));
+    const columns = headers.map((name, idx) => ({ 
+      name, 
+      index: idx,
+      sampleData: data.slice(1, 4).map(row => row[idx]).filter(v => v)
+    }));
+    
     res.json({ columns });
   } catch (err) {
+    console.error('Columns error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/fuzzy-match-preview', async (req, res) => {
-  const { sheetLeft, sheetRight, columnLeft, columnRight, threshold } = req.body;
+// Perform fuzzy matching
+app.post('/api/fuzzy-match', async (req, res) => {
+  const { 
+    sheetLeft, 
+    sheetRight, 
+    columnLeft, 
+    columnRight, 
+    threshold = 60,
+    maxResultsPerLeft = 1,  // Max matches per left row
+    caseSensitive = false,
+    customAbbreviations = {}
+  } = req.body;
+  
+  if (!workbook) {
+    return res.status(404).json({ error: 'No workbook uploaded' });
+  }
+  
   const startTime = Date.now();
   
   try {
     const leftSheet = workbook.Sheets[sheetLeft];
     const rightSheet = workbook.Sheets[sheetRight];
+    
+    if (!leftSheet || !rightSheet) {
+      return res.status(404).json({ error: 'One or both sheets not found' });
+    }
+    
     let leftData = XLSX.utils.sheet_to_json(leftSheet);
     let rightData = XLSX.utils.sheet_to_json(rightSheet);
     
     console.log(`Matching ${leftData.length} left rows against ${rightData.length} right rows...`);
+    console.log(`Left column: ${columnLeft}, Right column: ${columnRight}`);
+    console.log(`Threshold: ${threshold}, Max results per left: ${maxResultsPerLeft}`);
     
-    // Build caches for performance
-    const rightCache = buildExpansionCache(rightData, columnRight);
+    // Build index for performance
     const rightIndex = buildIndex(rightData, columnRight);
     
-    const matched = [];
-    const usedRight = new Set();
-    let comparisons = 0;
+    const results = [];
+    let totalComparisons = 0;
+    let matchedCount = 0;
     
     for (let li = 0; li < leftData.length; li++) {
       const leftRow = leftData[li];
       const leftVal = leftRow[columnLeft] ? String(leftRow[columnLeft]) : '';
-      const leftPrefix = leftVal.length >= 2 ? leftVal.substring(0, 2).toLowerCase() : '';
+      const leftClean = cleanText(leftVal);
+      const leftPrefix = leftClean.length >= 2 ? leftClean.substring(0, 2) : '';
       
       // Get candidates using prefix index
       let candidates = rightIndex.get(leftPrefix) || [];
       
-      // Fallback: if no candidates, sample random (scalable)
+      // Fallback: if no candidates, sample random rows for large datasets
       if (candidates.length === 0 && rightData.length > 0) {
-        const sampleSize = Math.min(200, rightData.length);
+        const sampleSize = Math.min(500, rightData.length);
         candidates = Array.from({ length: sampleSize }, () => Math.floor(Math.random() * rightData.length));
       }
       
-      let bestScore = 0;
-      let bestIdx = -1;
-      
+      // Calculate scores for all candidates
+      const scores = [];
       for (const ri of candidates) {
-        if (usedRight.has(ri)) continue;
+        const rightVal = rightData[ri][columnRight] ? String(rightData[ri][columnRight]) : '';
+        const score = calculateSimilarity(leftVal, rightVal, customAbbreviations);
+        totalComparisons++;
         
-        const rightCached = rightCache.get(ri);
-        const score = calculateSimilarity(leftVal, rightCached.raw);
-        comparisons++;
-        
-        if (score > bestScore && score >= threshold) {
-          bestScore = score;
-          bestIdx = ri;
+        if (score >= threshold) {
+          scores.push({ index: ri, score, rightRow: rightData[ri] });
         }
       }
       
-      if (bestIdx !== -1) {
-        matched.push({
-          left: leftRow,
-          right: rightData[bestIdx],
-          similarity: bestScore
+      // Sort by score (highest first) and take top N
+      scores.sort((a, b) => b.score - a.score);
+      const topMatches = scores.slice(0, maxResultsPerLeft);
+      
+      if (topMatches.length > 0) {
+        matchedCount++;
+        results.push({
+          leftRowIndex: li,
+          leftRow,
+          matches: topMatches.map(m => ({
+            rightRowIndex: m.index,
+            rightRow: m.rightRow,
+            similarityScore: m.score
+          }))
         });
-        usedRight.add(bestIdx);
       }
       
-      // Progress log
+      // Progress logging
       if ((li + 1) % 1000 === 0) {
-        console.log(`Processed ${li + 1}/${leftData.length} rows (${comparisons} comparisons, ${Date.now() - startTime}ms)`);
+        console.log(`Processed ${li + 1}/${leftData.length} rows (${totalComparisons} comparisons, ${Date.now() - startTime}ms)`);
       }
     }
     
-    console.log(`Total comparisons: ${comparisons}, time: ${Date.now() - startTime}ms`);
-    res.json({ 
-      matched, 
-      matchedCount: matched.length, 
-      totalLeft: leftData.length, 
-      totalRight: rightData.length 
+    const elapsedTime = Date.now() - startTime;
+    console.log(`Match complete: ${matchedCount}/${leftData.length} left rows matched`);
+    console.log(`Total comparisons: ${totalComparisons}, time: ${elapsedTime}ms`);
+    
+    res.json({
+      success: true,
+      matchedCount,
+      totalLeftRows: leftData.length,
+      totalRightRows: rightData.length,
+      threshold,
+      maxResultsPerLeft,
+      comparisons: totalComparisons,
+      elapsedTimeMs: elapsedTime,
+      results
     });
+    
   } catch (err) {
-    console.error(err);
+    console.error('Fuzzy match error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/fuzzy-compare-cross-sheet', (req, res) => {
-  const { sheetLeft, sheetRight, columnLeft, columnRight, threshold } = req.body;
+// Download results as Excel
+app.post('/api/download-results', (req, res) => {
+  const { results, leftData, rightData, columnLeft, columnRight } = req.body;
   
   try {
-    const leftSheet = workbook.Sheets[sheetLeft];
-    const rightSheet = workbook.Sheets[sheetRight];
-    let leftData = XLSX.utils.sheet_to_json(leftSheet);
-    let rightData = XLSX.utils.sheet_to_json(rightSheet);
-    
-    // Build caches
-    const rightCache = buildExpansionCache(rightData, columnRight);
-    const rightIndex = buildIndex(rightData, columnRight);
-    
-    const matched = [];
-    const unmatchedLeft = [];
-    const unmatchedRight = [];
-    const usedRight = new Set();
-    
-    // Match left to right
-    for (const leftRow of leftData) {
-      const leftVal = leftRow[columnLeft] ? String(leftRow[columnLeft]) : '';
-      const leftPrefix = leftVal.length >= 2 ? leftVal.substring(0, 2).toLowerCase() : '';
-      
-      let candidates = rightIndex.get(leftPrefix) || [];
-      if (candidates.length === 0 && rightData.length > 0) {
-        const sampleSize = Math.min(200, rightData.length);
-        candidates = Array.from({ length: sampleSize }, () => Math.floor(Math.random() * rightData.length));
-      }
-      
-      let bestScore = 0;
-      let bestIdx = -1;
-      
-      for (const ri of candidates) {
-        if (usedRight.has(ri)) continue;
-        const rightCached = rightCache.get(ri);
-        const score = calculateSimilarity(leftVal, rightCached.raw);
-        
-        if (score > bestScore && score >= threshold) {
-          bestScore = score;
-          bestIdx = ri;
-        }
-      }
-      
-      if (bestIdx !== -1) {
-        matched.push({
-          ...leftRow,
-          ...rightData[bestIdx],
-          _similarityScore: bestScore
-        });
-        usedRight.add(bestIdx);
-      } else {
-        unmatchedLeft.push({ ...leftRow, _matchStatus: 'No match found' });
-      }
-    }
-    
-    // Collect unmatched right rows
-    for (let i = 0; i < rightData.length; i++) {
-      if (!usedRight.has(i)) {
-        unmatchedRight.push({ ...rightData[i], _matchStatus: 'No match found' });
-      }
-    }
-    
-    // Create Excel output
     const wb = XLSX.utils.book_new();
     
-    if (matched.length) {
-      const matchedSheet = XLSX.utils.json_to_sheet(matched);
-      XLSX.utils.book_append_sheet(wb, matchedSheet, 'Matched');
+    // Sheet 1: Matched results
+    const matchedRows = [];
+    for (const result of results) {
+      for (const match of result.matches) {
+        matchedRows.push({
+          'Left_' + columnLeft: result.leftRow[columnLeft],
+          ...result.leftRow,
+          'Right_' + columnRight: match.rightRow[columnRight],
+          ...match.rightRow,
+          'Similarity_Score': match.similarityScore
+        });
+      }
     }
     
-    if (unmatchedLeft.length) {
-      const unmatchedLeftSheet = XLSX.utils.json_to_sheet(unmatchedLeft);
-      XLSX.utils.book_append_sheet(wb, unmatchedLeftSheet, 'Unmatched_Left');
+    if (matchedRows.length) {
+      const matchedSheet = XLSX.utils.json_to_sheet(matchedRows);
+      XLSX.utils.book_append_sheet(wb, matchedSheet, 'Matched_Results');
     }
     
-    if (unmatchedRight.length) {
-      const unmatchedRightSheet = XLSX.utils.json_to_sheet(unmatchedRight);
-      XLSX.utils.book_append_sheet(wb, unmatchedRightSheet, 'Unmatched_Right');
-    }
+    // Sheet 2: Summary
+    const summary = [
+      { Metric: 'Total Left Rows', Value: results.reduce((sum, r) => sum + 1, 0) },
+      { Metric: 'Total Matches Found', Value: matchedRows.length },
+      { Metric: 'Average Similarity Score', Value: matchedRows.length ? 
+        (matchedRows.reduce((sum, r) => sum + r.Similarity_Score, 0) / matchedRows.length).toFixed(2) : 0 }
+    ];
+    
+    const summarySheet = XLSX.utils.json_to_sheet(summary);
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
     
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
     
-    res.setHeader('Content-Disposition', 'attachment; filename=fuzzy_result.xlsx');
+    res.setHeader('Content-Disposition', 'attachment; filename=fuzzy_match_results.xlsx');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buffer);
     
   } catch (err) {
-    console.error(err);
+    console.error('Download error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`========================================`);
+  console.log(`Universal Fuzzy Lookup API`);
+  console.log(`Running on port ${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`========================================`);
+});
