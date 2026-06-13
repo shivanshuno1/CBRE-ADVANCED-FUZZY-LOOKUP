@@ -10,6 +10,9 @@ import cors from 'cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+
+
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -24,6 +27,12 @@ const upload = multer({ dest: uploadDir });
 
 let workbook = null;
 let currentUploadId = null;
+
+// ============ ADD THIS HELPER FUNCTION ============
+function escapeRegex(string) {
+  if (!string) return '';
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // ============ UNIVERSAL TEXT NORMALIZATION ============
 
