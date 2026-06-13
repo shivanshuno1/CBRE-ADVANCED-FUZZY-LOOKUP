@@ -51,49 +51,83 @@ const ColumnComparer = ({ uploadId, sheets }) => {
   }, [rightSheet, uploadId]);
 
   // Run fuzzy match with abort support
-  const runMatch = async () => {
-    if (!leftSheet || !rightSheet || !matchLeft || !matchRight) {
-      setError('Please select both sheets and match columns');
-      return;
-    }
+// Run fuzzy match with abort support
+const runMatch = async () => {
+  if (!leftSheet || !rightSheet || !matchLeft || !matchRight) {
+    setError('Please select both sheets and match columns');
+    return;
+  }
 
-    // Cancel any previous ongoing request
-    if (abortController) {
-      abortController.abort();
-    }
+  // Cancel any previous ongoing request
+  if (abortController) {
+    abortController.abort();
+  }
 
-    const controller = new AbortController();
-    setAbortController(controller);
-    setLoading(true);
-    setError('');
-    setResults(null);
+  const controller = new AbortController();
+  setAbortController(controller);
+  setLoading(true);
+  setError('');
+  setResults(null);
 
-    try {
-      const res = await axios.post(
-        'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/fuzzy-match-preview',
-        {
-          sheetLeft: leftSheet,
-          sheetRight: rightSheet,
-          columnLeft: matchLeft,
-          columnRight: matchRight,
-          threshold
-        },
-        { signal: controller.signal }
-      );
-      setResults(res.data);
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        setError('Matching was cancelled.');
-      } else {
-        console.error('Match error:', err);
-        setError(err.response?.data?.error || err.message);
+  try {
+    const res = await axios.post(
+      'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/fuzzy-match',
+      {
+        sheetLeft: leftSheet,
+        sheetRight: rightSheet,
+        columnLeft: matchLeft,
+        columnRight: matchRight,
+        threshold
+      },
+      { signal: controller.signal }
+    );
+    
+    console.log('API Response:', res.data);
+    
+    // Transform the response to match the expected format
+    if (res.data.success) {
+      const matchedResults = [];
+      
+      // Extract matches from the results array
+      if (res.data.results && Array.isArray(res.data.results)) {
+        for (const result of res.data.results) {
+          if (result.matches && Array.isArray(result.matches)) {
+            for (const match of result.matches) {
+              matchedResults.push({
+                left: result.leftRow,
+                right: match.rightRow,
+                similarity: match.similarityScore
+              });
+            }
+          }
+        }
       }
-    } finally {
-      setLoading(false);
-      setAbortController(null);
+      
+      setResults({
+        matched: matchedResults,
+        matchedCount: res.data.matchedCount || 0,
+        totalLeft: res.data.totalLeftRows || 0,
+        totalRight: res.data.totalRightRows || 0
+      });
+      
+      if (matchedResults.length === 0) {
+        setError(`No matches found with ${threshold}% threshold. Try lowering the threshold.`);
+      }
+    } else {
+      setError(res.data.error || 'Match failed');
     }
-  };
-
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      setError('Matching was cancelled.');
+    } else {
+      console.error('Match error:', err);
+      setError(err.response?.data?.error || err.message);
+    }
+  } finally {
+    setLoading(false);
+    setAbortController(null);
+  }
+};
   const cancelMatch = () => {
     if (abortController) {
       abortController.abort();
