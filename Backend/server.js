@@ -13,7 +13,6 @@ const upload = multer({ dest: 'uploads/' });
 let workbook = null;
 
 // ============ GENERIC ABBREVIATION DICTIONARY ============
-// Expand these dynamically - add as many as you need
 const abbreviationMap = {
   // Legal
   'pvt': 'private', 'ltd': 'limited', 'corp': 'corporation', 'inc': 'incorporated',
@@ -32,8 +31,7 @@ const abbreviationMap = {
   'part': 'partners', 'cons': 'consulting', 'dig': 'digital', 'creat': 'creative',
   'media': 'media', 'comms': 'communications', 'telecom': 'telecommunications',
   'soft': 'software', 'sys': 'systems', 'net': 'networks', 'log': 'logistics',
-  'supply': 'supply chain', 'dist': 'distribution', 'mfg': 'manufacturing',
-  'prod': 'products', 'serv': 'services', 'soln': 'solutions',
+  'supply': 'supply chain', 'prod': 'products', 'serv': 'services', 'soln': 'solutions',
   
   // Geographic
   'natl': 'national', 'nat': 'national', 'amer': 'american', 'glob': 'global',
@@ -60,33 +58,23 @@ const abbreviationMap = {
 };
 
 // ============ GENERIC MISSPELLING CORRECTIONS ============
-// Common typos and misspellings
 const misspellingMap = {
-  // Logistics variations
   'logistix': 'logistics', 'logistik': 'logistics', 'logistc': 'logistics',
   'lodgistics': 'logistics', 'logisitcs': 'logistics',
-  
-  // Solutions variations
   'soloutions': 'solutions', 'solutons': 'solutions', 'solns': 'solutions',
-  
-  // Incorporated variations
   'incorperated': 'incorporated', 'incorp': 'incorporated', 'incorprated': 'incorporated',
-  
-  // Corporation variations
   'corperation': 'corporation', 'corparation': 'corporation', 'corpration': 'corporation',
-  
-  // Financial variations
   'finacial': 'financial', 'finanical': 'financial', 'fincial': 'financial',
-  
-  // Common typos
-  'teh': 'the', 'and': 'and', 'withe': 'with', 'from': 'from',
-  'thier': 'their', 'there': 'their', 'your': 'your', 'youre': 'your',
-  
-  // Double letters
-  'commm': 'comm', 'incorr': 'incor', 'corpp': 'corp',
+  'teh': 'the', 'withe': 'with',
 };
 
 // ============ HELPER FUNCTIONS ============
+
+// Escape regex special characters - MUST be defined BEFORE being used
+function escapeRegex(string) {
+  if (!string) return '';
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // Generic abbreviation expansion
 function expandAbbreviations(text) {
@@ -98,18 +86,14 @@ function expandAbbreviations(text) {
   const sortedAbbrs = Object.keys(abbreviationMap).sort((a, b) => b.length - a.length);
   
   for (const abbr of sortedAbbrs) {
-    const regex = new RegExp(`\\b${this.escapeRegex(abbr)}\\b`, 'gi');
+    // FIXED: Removed 'this.' - just call escapeRegex directly
+    const regex = new RegExp(`\\b${escapeRegex(abbr)}\\b`, 'gi');
     if (regex.test(result)) {
       result = result.replace(regex, ` ${abbreviationMap[abbr]} `);
     }
   }
   
   return result.trim();
-}
-
-// Escape regex special characters
-function escapeRegex(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // Generic misspelling correction
@@ -121,7 +105,8 @@ function correctMisspellings(text) {
   const sortedMisspellings = Object.keys(misspellingMap).sort((a, b) => b.length - a.length);
   
   for (const wrong of sortedMisspellings) {
-    const regex = new RegExp(`\\b${this.escapeRegex(wrong)}\\b`, 'gi');
+    // FIXED: Removed 'this.' - just call escapeRegex directly
+    const regex = new RegExp(`\\b${escapeRegex(wrong)}\\b`, 'gi');
     if (regex.test(result)) {
       result = result.replace(regex, ` ${misspellingMap[wrong]} `);
     }
@@ -172,7 +157,7 @@ function calculateSimilarity(str1, str2) {
   const s1 = String(str1);
   const s2 = String(str2);
   
-  // Quick exact match
+  // Quick exact match after cleaning
   if (s1.toLowerCase().replace(/[^a-z0-9]/g, '') === s2.toLowerCase().replace(/[^a-z0-9]/g, '')) {
     return 100;
   }
@@ -199,7 +184,7 @@ function calculateSimilarity(str1, str2) {
   const words2 = new Set(corrected2.split(/\s+/));
   const intersection = new Set([...words1].filter(x => words2.has(x)));
   const union = new Set([...words1, ...words2]);
-  const wordOverlap = (intersection.size / union.size) * 100;
+  const wordOverlap = union.size === 0 ? 0 : (intersection.size / union.size) * 100;
   
   // Step 6: Combine scores with weights
   let finalScore = Math.max(
@@ -209,32 +194,17 @@ function calculateSimilarity(str1, str2) {
     wordOverlap * 0.1
   );
   
-  // Step 7: Apply dynamic penalties based on differences
-  
-  // Penalty for different word lengths (significantly different strings)
+  // Step 7: Apply dynamic penalties
   const lengthRatio = Math.min(corrected1.length, corrected2.length) / 
                       Math.max(corrected1.length, corrected2.length);
-  if (lengthRatio < 0.7) {
-    finalScore *= 0.85; // 15% penalty for very different lengths
-  }
-  
-  // Penalty for missing key words
-  const commonWords = ['company', 'corporation', 'limited', 'incorporated', 'llc', 'inc', 'corp'];
-  let missingKeyWords = 0;
-  for (const word of commonWords) {
-    const hasIn1 = corrected1.includes(word);
-    const hasIn2 = corrected2.includes(word);
-    if (hasIn1 !== hasIn2) missingKeyWords++;
-  }
-  if (missingKeyWords > 0) {
-    finalScore *= (1 - (missingKeyWords * 0.05)); // 5% penalty per missing key word
+  if (lengthRatio < 0.5) {
+    finalScore *= 0.8; // 20% penalty for very different lengths
+  } else if (lengthRatio < 0.7) {
+    finalScore *= 0.9; // 10% penalty for moderately different lengths
   }
   
   // Cap at 100 and round
   finalScore = Math.min(100, Math.max(0, Math.round(finalScore)));
-  
-  // Special handling: If strings are very different semantically but share core words
-  // This is handled automatically by the word overlap ratio
   
   return finalScore;
 }
@@ -247,7 +217,6 @@ function buildIndex(data, column) {
   for (let i = 0; i < data.length; i++) {
     const val = data[i][column] ? String(data[i][column]).toLowerCase() : '';
     if (val.length >= 2) {
-      // Use 2-char prefix for better recall
       const prefix = val.substring(0, 2);
       if (!index.has(prefix)) index.set(prefix, []);
       index.get(prefix).push(i);
@@ -280,37 +249,55 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     res.json({ success: true, uploadId: req.file.filename, sheets });
     fs.unlinkSync(req.file.path);
   } catch (err) {
+    console.error('Upload error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.get('/api/columns/:uploadId/:sheetName', (req, res) => {
-  if (!workbook) return res.status(404).json({ error: 'No workbook' });
+  if (!workbook) {
+    return res.status(404).json({ error: 'No workbook. Please upload a file first.' });
+  }
   try {
-    const sheet = workbook.Sheets[req.params.sheetName];
+    const sheetName = req.params.sheetName;
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) {
+      return res.status(404).json({ error: `Sheet '${sheetName}' not found` });
+    }
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
     if (!data.length) return res.json({ columns: [] });
     const headers = data[0].map(h => String(h));
     const columns = headers.map((name, idx) => ({ name, index: idx }));
     res.json({ columns });
   } catch (err) {
+    console.error('Columns error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post('/api/fuzzy-match-preview', async (req, res) => {
-  const { sheetLeft, sheetRight, columnLeft, columnRight, threshold } = req.body;
+  const { sheetLeft, sheetRight, columnLeft, columnRight, threshold = 60 } = req.body;
   const startTime = Date.now();
   
   try {
+    if (!workbook) {
+      return res.status(404).json({ error: 'No workbook uploaded. Please upload a file first.' });
+    }
+    
     const leftSheet = workbook.Sheets[sheetLeft];
     const rightSheet = workbook.Sheets[sheetRight];
+    
+    if (!leftSheet || !rightSheet) {
+      return res.status(404).json({ error: 'One or both sheets not found' });
+    }
+    
     let leftData = XLSX.utils.sheet_to_json(leftSheet);
     let rightData = XLSX.utils.sheet_to_json(rightSheet);
     
     console.log(`Matching ${leftData.length} left rows against ${rightData.length} right rows...`);
+    console.log(`Left column: ${columnLeft}, Right column: ${columnRight}`);
+    console.log(`Threshold: ${threshold}`);
     
-    // Build caches for performance
     const rightCache = buildExpansionCache(rightData, columnRight);
     const rightIndex = buildIndex(rightData, columnRight);
     
@@ -323,10 +310,8 @@ app.post('/api/fuzzy-match-preview', async (req, res) => {
       const leftVal = leftRow[columnLeft] ? String(leftRow[columnLeft]) : '';
       const leftPrefix = leftVal.length >= 2 ? leftVal.substring(0, 2).toLowerCase() : '';
       
-      // Get candidates using prefix index
       let candidates = rightIndex.get(leftPrefix) || [];
       
-      // Fallback: if no candidates, sample random (scalable)
       if (candidates.length === 0 && rightData.length > 0) {
         const sampleSize = Math.min(200, rightData.length);
         candidates = Array.from({ length: sampleSize }, () => Math.floor(Math.random() * rightData.length));
@@ -337,7 +322,6 @@ app.post('/api/fuzzy-match-preview', async (req, res) => {
       
       for (const ri of candidates) {
         if (usedRight.has(ri)) continue;
-        
         const rightCached = rightCache.get(ri);
         const score = calculateSimilarity(leftVal, rightCached.raw);
         comparisons++;
@@ -357,13 +341,14 @@ app.post('/api/fuzzy-match-preview', async (req, res) => {
         usedRight.add(bestIdx);
       }
       
-      // Progress log
       if ((li + 1) % 1000 === 0) {
         console.log(`Processed ${li + 1}/${leftData.length} rows (${comparisons} comparisons, ${Date.now() - startTime}ms)`);
       }
     }
     
     console.log(`Total comparisons: ${comparisons}, time: ${Date.now() - startTime}ms`);
+    console.log(`Matched: ${matched.length} pairs`);
+    
     res.json({ 
       matched, 
       matchedCount: matched.length, 
@@ -371,21 +356,29 @@ app.post('/api/fuzzy-match-preview', async (req, res) => {
       totalRight: rightData.length 
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('Fuzzy match error:', err);
+    res.status(500).json({ error: err.message, stack: err.stack });
   }
 });
 
 app.post('/api/fuzzy-compare-cross-sheet', (req, res) => {
-  const { sheetLeft, sheetRight, columnLeft, columnRight, threshold } = req.body;
+  const { sheetLeft, sheetRight, columnLeft, columnRight, threshold = 60 } = req.body;
   
   try {
+    if (!workbook) {
+      return res.status(404).json({ error: 'No workbook uploaded. Please upload a file first.' });
+    }
+    
     const leftSheet = workbook.Sheets[sheetLeft];
     const rightSheet = workbook.Sheets[sheetRight];
+    
+    if (!leftSheet || !rightSheet) {
+      return res.status(404).json({ error: 'One or both sheets not found' });
+    }
+    
     let leftData = XLSX.utils.sheet_to_json(leftSheet);
     let rightData = XLSX.utils.sheet_to_json(rightSheet);
     
-    // Build caches
     const rightCache = buildExpansionCache(rightData, columnRight);
     const rightIndex = buildIndex(rightData, columnRight);
     
@@ -394,7 +387,6 @@ app.post('/api/fuzzy-compare-cross-sheet', (req, res) => {
     const unmatchedRight = [];
     const usedRight = new Set();
     
-    // Match left to right
     for (const leftRow of leftData) {
       const leftVal = leftRow[columnLeft] ? String(leftRow[columnLeft]) : '';
       const leftPrefix = leftVal.length >= 2 ? leftVal.substring(0, 2).toLowerCase() : '';
@@ -431,14 +423,12 @@ app.post('/api/fuzzy-compare-cross-sheet', (req, res) => {
       }
     }
     
-    // Collect unmatched right rows
     for (let i = 0; i < rightData.length; i++) {
       if (!usedRight.has(i)) {
         unmatchedRight.push({ ...rightData[i], _matchStatus: 'No match found' });
       }
     }
     
-    // Create Excel output
     const wb = XLSX.utils.book_new();
     
     if (matched.length) {
@@ -463,10 +453,35 @@ app.post('/api/fuzzy-compare-cross-sheet', (req, res) => {
     res.send(buffer);
     
   } catch (err) {
-    console.error(err);
+    console.error('Download error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'CBRE Advanced Fuzzy Lookup API',
+    status: 'running',
+    endpoints: {
+      upload: 'POST /api/upload',
+      columns: 'GET /api/columns/:uploadId/:sheetName',
+      fuzzyMatch: 'POST /api/fuzzy-match-preview',
+      download: 'POST /api/fuzzy-compare-cross-sheet',
+      health: 'GET /health'
+    }
+  });
+});
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`========================================`);
+  console.log(`Backend running on port ${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
+  console.log(`========================================`);
+});
