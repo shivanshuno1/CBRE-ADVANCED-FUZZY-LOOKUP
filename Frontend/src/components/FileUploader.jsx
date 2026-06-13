@@ -10,7 +10,7 @@ const FileUploader = ({ onUploadSuccess, onError }) => {
     fd.append('file', file);
     setUploading(true);
     try {
-      const res = await axios.post('http://localhost:5000/api/upload', fd);
+      const res = await axios.post('https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/upload', fd);
       onUploadSuccess(res.data);
     } catch (err) {
       onError(err.message);

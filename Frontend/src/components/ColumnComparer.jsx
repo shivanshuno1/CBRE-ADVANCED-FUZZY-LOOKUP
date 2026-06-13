@@ -20,7 +20,7 @@ const ColumnComparer = ({ uploadId, sheets }) => {
       setLeftCols([]);
       return;
     }
-    axios.get(`http://localhost:5000/api/columns/${uploadId}/${leftSheet}`)
+    axios.get(`https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/columns/${uploadId}/${leftSheet}`)
       .then(res => {
         const columns = res.data && Array.isArray(res.data.columns) ? res.data.columns : [];
         setLeftCols(columns);
@@ -38,7 +38,7 @@ const ColumnComparer = ({ uploadId, sheets }) => {
       setRightCols([]);
       return;
     }
-    axios.get(`http://localhost:5000/api/columns/${uploadId}/${rightSheet}`)
+    axios.get(`https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/columns/${uploadId}/${rightSheet}`)
       .then(res => {
         const columns = res.data && Array.isArray(res.data.columns) ? res.data.columns : [];
         setRightCols(columns);
@@ -70,7 +70,7 @@ const ColumnComparer = ({ uploadId, sheets }) => {
 
     try {
       const res = await axios.post(
-        'http://localhost:5000/api/fuzzy-match-preview',
+        'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/fuzzy-match-preview',
         {
           sheetLeft: leftSheet,
           sheetRight: rightSheet,
@@ -104,7 +104,7 @@ const ColumnComparer = ({ uploadId, sheets }) => {
   const downloadExcel = async () => {
     try {
       const res = await axios.post(
-        'http://localhost:5000/api/fuzzy-compare-cross-sheet',
+        'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/fuzzy-compare-cross-sheet',
         {
           sheetLeft: leftSheet,
           sheetRight: rightSheet,
