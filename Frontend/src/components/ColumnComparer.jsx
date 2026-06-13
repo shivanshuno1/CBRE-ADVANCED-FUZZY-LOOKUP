@@ -14,13 +14,15 @@ const ColumnComparer = ({ uploadId, sheets }) => {
   const [error, setError] = useState('');
   const [abortController, setAbortController] = useState(null);
 
+  const API_BASE = 'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com';
+
   // Fetch left columns
   useEffect(() => {
-    if (!leftSheet) {
+    if (!leftSheet || !uploadId) {
       setLeftCols([]);
       return;
     }
-    axios.get(`https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/columns/${uploadId}/${leftSheet}`)
+    axios.get(`${API_BASE}/api/columns/${uploadId}/${encodeURIComponent(leftSheet)}`)
       .then(res => {
         const columns = res.data && Array.isArray(res.data.columns) ? res.data.columns : [];
         setLeftCols(columns);
@@ -34,11 +36,11 @@ const ColumnComparer = ({ uploadId, sheets }) => {
 
   // Fetch right columns
   useEffect(() => {
-    if (!rightSheet) {
+    if (!rightSheet || !uploadId) {
       setRightCols([]);
       return;
     }
-    axios.get(`https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/columns/${uploadId}/${rightSheet}`)
+    axios.get(`${API_BASE}/api/columns/${uploadId}/${encodeURIComponent(rightSheet)}`)
       .then(res => {
         const columns = res.data && Array.isArray(res.data.columns) ? res.data.columns : [];
         setRightCols(columns);
@@ -70,7 +72,7 @@ const ColumnComparer = ({ uploadId, sheets }) => {
 
     try {
       const res = await axios.post(
-        'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/fuzzy-match-preview',
+        `${API_BASE}/api/fuzzy-match-preview`,
         {
           sheetLeft: leftSheet,
           sheetRight: rightSheet,
@@ -80,7 +82,22 @@ const ColumnComparer = ({ uploadId, sheets }) => {
         },
         { signal: controller.signal }
       );
-      setResults(res.data);
+      
+      // Debug logging
+      console.log('=== API Response ===');
+      console.log('Full response:', res.data);
+      console.log('Matched count:', res.data.matchedCount);
+      console.log('Matched array length:', res.data.matched?.length);
+      console.log('All matches:', res.data.matched);
+      
+      // Set results directly from response
+      setResults({
+        matched: res.data.matched || [],
+        matchedCount: res.data.matchedCount || 0,
+        totalLeft: res.data.totalLeft || 0,
+        totalRight: res.data.totalRight || 0
+      });
+      
     } catch (err) {
       if (err.name === 'AbortError') {
         setError('Matching was cancelled.');
@@ -104,7 +121,7 @@ const ColumnComparer = ({ uploadId, sheets }) => {
   const downloadExcel = async () => {
     try {
       const res = await axios.post(
-        'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/fuzzy-compare-cross-sheet',
+        `${API_BASE}/api/fuzzy-compare-cross-sheet`,
         {
           sheetLeft: leftSheet,
           sheetRight: rightSheet,
@@ -148,7 +165,11 @@ const ColumnComparer = ({ uploadId, sheets }) => {
     <div style={{ border: '1px solid #ccc', padding: 20, marginTop: 20 }}>
       <h2>Cross-Sheet Fuzzy Match</h2>
 
-      {error && <div style={{ color: 'red', marginBottom: 15, padding: 10, backgroundColor: '#ffeeee', borderRadius: 4 }}>{error}</div>}
+      {error && (
+        <div style={{ color: 'red', marginBottom: 15, padding: 10, backgroundColor: '#ffeeee', borderRadius: 4 }}>
+          {error}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
         {/* Left Sheet Section */}
@@ -289,8 +310,8 @@ const ColumnComparer = ({ uploadId, sheets }) => {
       {results && results.matched && (
         <div style={{ marginTop: 20 }}>
           <h3>
-            Results: {results.matchedCount || 0} matches out of {results.totalLeft || 0} left rows
-            {results.matchedCount === 0 && " — Try lowering the similarity threshold"}
+            Results: {results.matchedCount || results.matched.length} matches out of {results.totalLeft || 0} left rows
+            {results.matched.length === 0 && " — Try lowering the similarity threshold"}
           </h3>
 
           {results.matched.length > 0 && (
@@ -304,7 +325,8 @@ const ColumnComparer = ({ uploadId, sheets }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {results.matched.slice(0, 20).map((m, idx) => (
+                  {/* Display ALL matches - removed .slice(0,20) */}
+                  {results.matched.map((m, idx) => (
                     <tr key={idx}>
                       <td style={{ border: '1px solid #ddd', padding: 8 }}>
                         {m.left && m.left[matchLeft] ? String(m.left[matchLeft]) : '—'}
@@ -319,11 +341,6 @@ const ColumnComparer = ({ uploadId, sheets }) => {
                   ))}
                 </tbody>
               </table>
-              {results.matched.length > 20 && (
-                <div style={{ marginTop: 10, color: '#666', textAlign: 'center' }}>
-                  ... and {results.matched.length - 20} more rows. Download the Excel file to see all matches.
-                </div>
-              )}
             </div>
           )}
         </div>
