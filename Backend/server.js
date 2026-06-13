@@ -14,9 +14,92 @@ let workbook = null;
 
 function expandAbbr(s) {
   const map = {
-    pvt: 'private', ltd: 'limited', corp: 'corporation',
-    inc: 'incorporated', co: 'company', llc: 'limited liability company'
+    // Legal entity types (most common)
+    pvt: 'private',
+    ltd: 'limited',
+    corp: 'corporation',
+    inc: 'incorporated',
+    co: 'company',
+    llc: 'limited liability company',
+    llp: 'limited liability partnership',
+    plc: 'public limited company',
+    lllp: 'limited liability limited partnership',
+    
+    // Business suffixes
+    ent: 'enterprise',
+    grp: 'group',
+    hldgs: 'holdings',
+    hldg: 'holding',
+    intl: 'international',
+    tech: 'technologies',
+    sols: 'solutions',
+    svcs: 'services',
+    mgmt: 'management',
+    assoc: 'associates',
+    assn: 'association',
+    inst: 'institute',
+    fdn: 'foundation',
+    inds: 'industries',
+    mfg: 'manufacturing',
+    dist: 'distribution',
+    
+    // Common prefixes
+    natl: 'national',
+    nat: 'national',
+    amer: 'american',
+    intl: 'international',
+    glob: 'global',
+    eu: 'european',
+    asia: 'asian',
+    
+    // Business terms
+    cap: 'capital',
+    fin: 'financial',
+    inv: 'investment',
+    advisors: 'advisors',
+    partners: 'partners',
+    consulting: 'consulting',
+    digital: 'digital',
+    creative: 'creative',
+    media: 'media',
+    comms: 'communications',
+    telecom: 'telecommunications',
+    software: 'software',
+    systems: 'systems',
+    networks: 'networks',
+    logistics: 'logistics',
+    supply: 'supply chain',
+    
+    // Government/Public sector
+    gov: 'government',
+    corp: 'corporation',
+    auth: 'authority',
+    dept: 'department',
+    
+    // Brand/Industry specific
+    air: 'airlines',
+    airways: 'airways',
+    rail: 'railway',
+    shipping: 'shipping',
+    maritime: 'maritime',
+    energy: 'energy',
+    power: 'power',
+    utilities: 'utilities',
+    health: 'healthcare',
+    pharma: 'pharmaceutical',
+    biotech: 'biotechnology',
+    auto: 'automotive',
+    aero: 'aerospace',
+    defense: 'defense',
+    
+    // Regional
+    midwest: 'midwest',
+    northeast: 'northeast',
+    southeast: 'southeast',
+    southwest: 'southwest',
+    northwest: 'northwest'
   };
+  
   return s.toLowerCase().replace(/\b(\w+)\b/g, w => map[w] || w);
 }
 
