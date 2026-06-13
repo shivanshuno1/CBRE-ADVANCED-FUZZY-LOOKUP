@@ -20,7 +20,7 @@ const ColumnComparer = ({ uploadId, sheets }) => {
       setLeftCols([]);
       return;
     }
-    axios.get(`https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/columns/${uploadId}/${leftSheet}`)
+    axios.get(`http://localhost:5000/api/columns/${uploadId}/${leftSheet}`)
       .then(res => {
         const columns = res.data && Array.isArray(res.data.columns) ? res.data.columns : [];
         setLeftCols(columns);
@@ -38,7 +38,7 @@ const ColumnComparer = ({ uploadId, sheets }) => {
       setRightCols([]);
       return;
     }
-    axios.get(`https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/columns/${uploadId}/${rightSheet}`)
+    axios.get(`http://localhost:5000/api/columns/${uploadId}/${rightSheet}`)
       .then(res => {
         const columns = res.data && Array.isArray(res.data.columns) ? res.data.columns : [];
         setRightCols(columns);
@@ -51,83 +51,49 @@ const ColumnComparer = ({ uploadId, sheets }) => {
   }, [rightSheet, uploadId]);
 
   // Run fuzzy match with abort support
-// Run fuzzy match with abort support
-const runMatch = async () => {
-  if (!leftSheet || !rightSheet || !matchLeft || !matchRight) {
-    setError('Please select both sheets and match columns');
-    return;
-  }
-
-  // Cancel any previous ongoing request
-  if (abortController) {
-    abortController.abort();
-  }
-
-  const controller = new AbortController();
-  setAbortController(controller);
-  setLoading(true);
-  setError('');
-  setResults(null);
-
-  try {
-    const res = await axios.post(
-      'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/fuzzy-match',
-      {
-        sheetLeft: leftSheet,
-        sheetRight: rightSheet,
-        columnLeft: matchLeft,
-        columnRight: matchRight,
-        threshold
-      },
-      { signal: controller.signal }
-    );
-    
-    console.log('API Response:', res.data);
-    
-    // Transform the response to match the expected format
-    if (res.data.success) {
-      const matchedResults = [];
-      
-      // Extract matches from the results array
-      if (res.data.results && Array.isArray(res.data.results)) {
-        for (const result of res.data.results) {
-          if (result.matches && Array.isArray(result.matches)) {
-            for (const match of result.matches) {
-              matchedResults.push({
-                left: result.leftRow,
-                right: match.rightRow,
-                similarity: match.similarityScore
-              });
-            }
-          }
-        }
-      }
-      
-      setResults({
-        matched: matchedResults,
-        matchedCount: res.data.matchedCount || 0,
-        totalLeft: res.data.totalLeftRows || 0,
-        totalRight: res.data.totalRightRows || 0
-      });
-      
-      if (matchedResults.length === 0) {
-        setError(`No matches found with ${threshold}% threshold. Try lowering the threshold.`);
-      }
-    } else {
-      setError(res.data.error || 'Match failed');
+  const runMatch = async () => {
+    if (!leftSheet || !rightSheet || !matchLeft || !matchRight) {
+      setError('Please select both sheets and match columns');
+      return;
     }
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      setError('Matching was cancelled.');
-    } else {
-      console.error('Match error:', err);
-      setError(err.response?.data?.error || err.message);
+
+    // Cancel any previous ongoing request
+    if (abortController) {
+      abortController.abort();
     }
-  } finally {
-    setLoading(false);
-    setAbortController(null);
-  }
-};
+
+    const controller = new AbortController();
+    setAbortController(controller);
+    setLoading(true);
+    setError('');
+    setResults(null);
+
+    try {
+      const res = await axios.post(
+        'http://localhost:5000/api/fuzzy-match-preview',
+        {
+          sheetLeft: leftSheet,
+          sheetRight: rightSheet,
+          columnLeft: matchLeft,
+          columnRight: matchRight,
+          threshold
+        },
+        { signal: controller.signal }
+      );
+      setResults(res.data);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setError('Matching was cancelled.');
+      } else {
+        console.error('Match error:', err);
+        setError(err.response?.data?.error || err.message);
+      }
+    } finally {
+      setLoading(false);
+      setAbortController(null);
+    }
+  };
+
   const cancelMatch = () => {
     if (abortController) {
       abortController.abort();
@@ -138,7 +104,7 @@ const runMatch = async () => {
   const downloadExcel = async () => {
     try {
       const res = await axios.post(
-        'https://cbre-advanced-fuzzy-lookup-uyqn.onrender.com/api/fuzzy-compare-cross-sheet',
+        'http://localhost:5000/api/fuzzy-compare-cross-sheet',
         {
           sheetLeft: leftSheet,
           sheetRight: rightSheet,
