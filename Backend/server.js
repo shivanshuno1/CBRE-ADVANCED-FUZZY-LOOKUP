@@ -247,7 +247,7 @@ app.get('/api/columns/:uploadId/:sheetName', (req, res) => {
 });
 
 // Perform fuzzy matching
-app.post('/api/fuzzy-match', async (req, res) => {
+app.post('/api/fuzzy-match-preview', async (req, res) => {
   const { 
     sheetLeft, 
     sheetRight, 
